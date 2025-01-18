@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 5000;
 // const upload = multer({ dest: 'uploads/' });
@@ -31,6 +31,7 @@ async function run() {
     const userCollection = client.db('TourismDB').collection('users');
     const storiesCollection = client.db('TourismDB').collection('stories');
     const packageCollection = client.db('TourismDB').collection('packages');
+    const guideApplicationCollection = client.db('TourismDB').collection('guideApplications')
 
     // user related API
 
@@ -54,6 +55,30 @@ async function run() {
     app.get('/packages', async(req, res) => {
       const result = await packageCollection.find().toArray();
       res.send(result);
+    })
+
+    app.get('/packages/:id', async(req, res) => {
+      const {id} = req.params;
+      const query = {_id: new ObjectId(id)};
+      const result = await packageCollection.findOne(query);
+      res.send(result);
+    })
+
+    // guide application related APIs
+    app.post('/guideApplications', async(req, res) => {
+      const {userId, name, email, title, reason, cvLink} = req.body;
+
+      const existingApplication = await guideApplicationCollection.findOne({userId});
+      if(existingApplication){
+        return res.status(400).send({message: 'You have already applied to become a tour guide'})
+      }
+
+      const applicationData = {
+        userId: new ObjectId(userId), name, email, title, reason, cvLink, status: 'pending', appliedAt: new Date()
+      }
+
+      const result = await guideApplicationCollection.insertOne(applicationData);
+      res.send({message: 'Application Submitted Successfully', applicationId: result.insertedId})
     })
 
     // stories related api
