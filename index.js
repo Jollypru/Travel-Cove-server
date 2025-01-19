@@ -36,17 +36,34 @@ async function run() {
     // user related API
 
     app.get('/users', async(req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
+      const email = req.query.email;
+      try{
+        if(email){
+          const user = await userCollection.findOne({email});
+          if(!user){
+            return res.send({message: 'User not found'})
+          }
+          return res.send(user);
+        }
+        else{
+          const users = await userCollection.find().toArray();
+          return res.send(users);
+        }
+      }catch(error){
+        console.log('Error fetching users:', error);
+        res.send({message: 'failed to fetch users'})
+      }
+      
     })
 
     app.post('/users', async(req, res) => {
-      const user = req.body;
-      const query = {email: user.email};
+      const {name, email} = req.body;
+      const query = {email: email};
       const existingUser = await userCollection.findOne(query);
       if(existingUser){
         return res.send({message: 'user already exist', insertedId: null})
       }
+      const user = {name, email, role: 'tourist'}
       const result = await userCollection.insertOne(user);
       res.send(result);
     })
@@ -65,10 +82,17 @@ async function run() {
     })
 
     // guide application related APIs
+
+    app.get('/guideApplications', async(req, res) => {
+      const result = await guideApplicationCollection.find().toArray();
+      res.send(result);
+    })
+
     app.post('/guideApplications', async(req, res) => {
       const {userId, name, email, title, reason, cvLink} = req.body;
+      console.log('post er userId',userId);
 
-      const existingApplication = await guideApplicationCollection.findOne({userId});
+      const existingApplication = await guideApplicationCollection.findOne({userId: new ObjectId(userId)});
       if(existingApplication){
         return res.status(400).send({message: 'You have already applied to become a tour guide'})
       }
@@ -79,6 +103,30 @@ async function run() {
 
       const result = await guideApplicationCollection.insertOne(applicationData);
       res.send({message: 'Application Submitted Successfully', applicationId: result.insertedId})
+    })
+
+    app.put('/guideApplications/accept/:id', async(req, res) => {
+      const {id} = req.params;
+      console.log(id);
+      try{
+        const application = await guideApplicationCollection.findOne({_id: new ObjectId(id)});
+      if(!application){
+        return res.status(404).send({message: 'application not found'})
+      }
+      const {userId} = application;
+      console.log('application er userid', userId);
+      const updateUser = await userCollection.updateOne(
+        {_id: new ObjectId(userId)},
+        {$set: {role: 'tour-guide'}}
+      )
+
+      await guideApplicationCollection.deleteOne({_id: new ObjectId(id)});
+      res.send({message: 'application accepted and role updated to tour-guide'})
+      }
+      catch(error){
+        res.send({message: 'failed to accept invitation'})
+      }
+
     })
 
     // stories related api
