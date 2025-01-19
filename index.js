@@ -129,6 +129,17 @@ async function run() {
 
     })
 
+
+    app.delete('/guideApplications/reject/:id', async(req, res) => {
+      const {id} = req.params;
+      const query = {_id: new ObjectId(id)};
+      const result = await guideApplicationCollection.deleteOne(query);
+      if(result.deletedCount === 0){
+        return res.send({message: 'application not found'})
+      }
+      res.send({message: 'Application deleted and reject successfully'})
+    })
+
     // stories related api
     app.get('/stories', async(req, res) => {
         const stories = await storiesCollection.find().toArray();
