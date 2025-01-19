@@ -32,6 +32,7 @@ async function run() {
     const storiesCollection = client.db('TourismDB').collection('stories');
     const packageCollection = client.db('TourismDB').collection('packages');
     const guideApplicationCollection = client.db('TourismDB').collection('guideApplications')
+    const bookingsCollection = client.db('TourismDB').collection('bookings')
 
     // user related API
 
@@ -68,6 +69,17 @@ async function run() {
       res.send(result);
     })
 
+    app.get('/users/:id', async(req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id), role: 'tour-guide'};
+      const result = await userCollection.findOne(query);
+
+      if(!result){
+        return req.send({message: 'guide not found'});
+      }
+      res.send(result);
+    })
+
     // package related api
     app.get('/packages', async(req, res) => {
       const result = await packageCollection.find().toArray();
@@ -79,6 +91,15 @@ async function run() {
       const query = {_id: new ObjectId(id)};
       const result = await packageCollection.findOne(query);
       res.send(result);
+    })
+
+
+    // guide related api
+
+    app.get('/guides', async(req, res) => {
+      const query = {role: 'tour-guide'};
+      const guides = await userCollection.find(query).toArray();
+      res.send(guides);
     })
 
     // guide application related APIs
@@ -144,6 +165,13 @@ async function run() {
     app.get('/stories', async(req, res) => {
         const stories = await storiesCollection.find().toArray();
         res.send(stories);
+    })
+
+    // booking related api
+    app.post('/bookings', async(req, res) => {
+      const booking = req.body;
+      const result = await bookingsCollection.insertOne(booking);
+      res.send(result);
     })
 
     
