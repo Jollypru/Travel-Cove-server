@@ -1,8 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId, Admin } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 5000;
 const upload = multer({ dest: 'uploads/' });
@@ -26,7 +27,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db('TourismDB').collection('users');
     const storiesCollection = client.db('TourismDB').collection('stories');
@@ -34,38 +35,111 @@ async function run() {
     const guideApplicationCollection = client.db('TourismDB').collection('guideApplications')
     const bookingsCollection = client.db('TourismDB').collection('bookings')
 
-    // user related API
-
-    app.get('/users', async (req, res) => {
-      const email = req.query.email;
-      try {
-        if (email) {
-          const user = await userCollection.findOne({ email });
-          if (!user) {
-            return res.send({ message: 'User not found' })
-          }
-          return res.send(user);
-        }
-        else {
-          const users = await userCollection.find().toArray();
-          return res.send(users);
-        }
-      } catch (error) {
-        console.log('Error fetching users:', error);
-        res.send({ message: 'failed to fetch users' })
-      }
-
+    app.post('/jwt', async(req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '5h'});
+      res.send({token});
     })
 
+    // middlewares
+    const verifyToken = (req, res, next) => {
+      console.log('inside verify token',req.headers.authorization);
+      if(!req.headers.authorization){
+        return res.status(401).send({message: 'funauthorized access'});
+      }
+      const token = req.headers.authorization.split(' ')[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+        if(error){
+          return res.status(401).send({message: 'unauthorized access'})
+        }
+        req.decoded = decoded;
+        next();
+      })     
+    }
+
+    // user related API
+
+    // app.get('/users', async (req, res) => {
+    //   const email = req.query.email;
+    //   try {
+    //     if (email) {
+    //       const user = await userCollection.findOne({ email });
+    //       if (!user) {
+    //         return res.send({ message: 'User not found' })
+    //       }
+    //       return res.send(user);
+    //     }
+    //     else {
+    //       const users = await userCollection.find().toArray();
+    //       return res.send(users);
+    //     }
+    //   } catch (error) {
+    //     console.log('Error fetching users:', error);
+    //     res.send({ message: 'failed to fetch users' })
+    //   }
+
+    // })
+
+    app.get('/users',verifyToken, async (req, res) => {
+      const { name, email, role } = req.query;
+
+      try {
+        const query = {};
+
+        if (name) {
+          query.name = { $regex: name, $options: 'i' };  // Case-insensitive search for name
+        }
+        if (email) {
+          query.email = { $regex: email, $options: 'i' }; // Case-insensitive search for email
+        }
+        if (role) {
+          query.role = role;
+        }
+
+        const users = await userCollection.find(query).toArray();
+        res.send(users);
+      } catch (error) {
+        console.log('Error fetching users:', error);
+        res.status(500).send({ message: 'Failed to fetch users' });
+      }
+    });
+
+    app.get('/users/admin/:email', verifyToken, async(req, res) =>{
+      const email = req.params.email;
+      if(email !== req.decoded.email){
+        return res.status(403).send({message: 'forbidden access'})
+      }
+      const query = {email: email};
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if(user){
+        admin = user?.role === 'admin'
+      }
+      res.send({admin});
+    })
+
+    app.patch('/users/admin/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: 'admin'
+        }
+      }
+      const result = await userCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    })
+
+
     app.post('/users', async (req, res) => {
-      const { name, email } = req.body;
-      const query = { email: email };
+      const user = req.body;
+      const query = { email: user.email };
       const existingUser = await userCollection.findOne(query);
       if (existingUser) {
         return res.send({ message: 'user already exist', insertedId: null })
       }
-      const user = { name, email, role: 'tourist' }
-      const result = await userCollection.insertOne(user);
+      const addUser = { name:user.name, email:user.email, role: 'tourist' }
+      const result = await userCollection.insertOne(addUser);
       res.send(result);
     })
 
@@ -96,32 +170,10 @@ async function run() {
     app.get('/packages/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
+      console.log(query);
       const result = await packageCollection.findOne(query);
       res.send(result);
     })
-
-    // app.get('/packages/random', async (req, res) => {
-    //   const limit = parseInt(req.query.limit) || 3;
-
-    //   try {
-    //     const result = await packageCollection.aggregate([
-    //       { $sample: { size: limit } } // Randomly selects `limit` number of documents
-    //     ]).toArray();
-    //     console.log('Random packages:', result);
-
-    //     // Check if result is valid
-    //     if (!result || result.length === 0) {
-    //       return res.status(404).send({ message: 'No packages found' });
-    //     }
-
-    //     res.send(result);
-    //   } catch (error) {
-    //     console.error('Error in /packages/random:', error);
-    //     res.status(500).send({ message: 'Failed to fetch random packages' });
-    //   }
-    // });
-
-
 
 
     // guide related api
@@ -140,19 +192,19 @@ async function run() {
     })
 
     app.post('/guideApplications', async (req, res) => {
-      const { userId, name, email, title, reason, cvLink } = req.body;
+      const { name, email, title, reason, cvLink } = req.body;
 
-      if (!isValidObjectId(userId)) {
-        return res.status(400).send({ message: 'Invalid userId format' });
-      }
+      // if (!isValidObjectId(userId)) {
+      //   return res.status(400).send({ message: 'Invalid userId format' });
+      // }
 
-      const existingApplication = await guideApplicationCollection.findOne({ userId: new ObjectId(userId) });
-      if (existingApplication) {
-        return res.status(400).send({ message: 'You have already applied to become a tour guide' })
-      }
+      // const existingApplication = await guideApplicationCollection.findOne({ userId: new ObjectId(userId) });
+      // if (existingApplication) {
+      //   return res.status(400).send({ message: 'You have already applied to become a tour guide' })
+      // }
 
       const applicationData = {
-        userId: new ObjectId(userId), name, email, title, reason, cvLink, status: 'pending', appliedAt: new Date()
+         name, email, title, reason, cvLink, status: 'pending', appliedAt: new Date()
       }
 
       const result = await guideApplicationCollection.insertOne(applicationData);
@@ -271,7 +323,7 @@ async function run() {
       } catch (error) {
         console.error('Error updating story:', error);
         res.status(500).send({ message: 'Failed to update story' });
-      }    
+      }
     });
 
 
@@ -285,7 +337,7 @@ async function run() {
 
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
