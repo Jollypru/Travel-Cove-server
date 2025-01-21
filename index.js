@@ -6,10 +6,21 @@ const multer = require('multer');
 const { MongoClient, ServerApiVersion, ObjectId, Admin } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 5000;
-const upload = multer({ dest: 'uploads/' });
+const path = require('path');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`)
+  }
+})
+const upload = multer({ storage });
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
 
 
@@ -43,7 +54,7 @@ async function run() {
 
     // middlewares
     const verifyToken = (req, res, next) => {
-      console.log('inside verify token',req.headers.authorization);
+      // console.log('inside verify token',req.headers.authorization);
       if(!req.headers.authorization){
         return res.status(401).send({message: 'funauthorized access'});
       }
@@ -55,6 +66,17 @@ async function run() {
         req.decoded = decoded;
         next();
       })     
+    }
+
+    const verifyAdmin = async(req, res, next) =>{
+      const email = req.decoded.email;
+      const query = {email: email};
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === 'admin';
+      if(!isAdmin){
+        return res.status(403).send({message: 'forbidden access'})
+      }
+      next();
     }
 
     // user related API
@@ -80,7 +102,7 @@ async function run() {
 
     // })
 
-    app.get('/users',verifyToken, async (req, res) => {
+    app.get('/users',verifyToken,verifyAdmin, async (req, res) => {
       const { name, email, role } = req.query;
 
       try {
@@ -118,7 +140,7 @@ async function run() {
       res.send({admin});
     })
 
-    app.patch('/users/admin/:id', async (req, res) => {
+    app.patch('/users/admin/:id',verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
@@ -170,9 +192,24 @@ async function run() {
     app.get('/packages/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      console.log(query);
+      // console.log(query);
       const result = await packageCollection.findOne(query);
       res.send(result);
+    })
+
+    app.post('/packages', upload.fields([
+      {name: 'coverImage', maxCount: 1},
+      {name: 'galleryImages', maxCount: 10}
+    ]), async(req, res) => {
+      const {title, description,price, tourPlan, tourType} = req.body;
+      const coverImage = req.files?.coverImage?.[0]?.path;
+      const galleryImages = req.files?.galleryImages?.map(file => file.path);
+
+      const newPackage = {
+        title, description, price: parseFloat(price), tourPlan: JSON.parse(tourPlan), tourType, coverImage, galleryImages, createdAt: new Date()
+      }
+      const result = await packageCollection.insertOne(newPackage);
+      res.send({message: 'Package added successfully', packageId: result.insertedId })
     })
 
 
@@ -220,7 +257,7 @@ async function run() {
           return res.status(404).send({ message: 'application not found' })
         }
         const { userId } = application;
-        console.log('application er userid', userId);
+        // console.log('application er userid', userId);
         const updateUser = await userCollection.updateOne(
           { _id: new ObjectId(userId) },
           { $set: { role: 'tour-guide' } }
