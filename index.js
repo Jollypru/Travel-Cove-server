@@ -55,7 +55,6 @@ async function run() {
 
     // middlewares
     const verifyToken = (req, res, next) => {
-      // console.log('inside verify token',req.headers.authorization);
       if (!req.headers.authorization) {
         return res.status(401).send({ message: 'unauthorized access' });
       }
@@ -122,6 +121,17 @@ async function run() {
       res.send({ admin });
     })
 
+    // tour guide verify
+    app.get('/users/tour-guide/:email', verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email: email });
+      let tourGuide = false;
+      if (user) {
+        tourGuide = user?.role === 'tour-guide'
+      }
+      res.send({ tourGuide });
+    })
+
     // made a specific user admin
     app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
@@ -150,7 +160,7 @@ async function run() {
 
     app.get('/admin/stats', async (req, res) => {
       const totalPayment = await bookingsCollection.aggregate([
-        { $group: { _id: null, total: { $sum: '$amount' } } },
+        { $group: { _id: null, total: { $sum: '$price' } } },
       ]).toArray();
 
       const totalTourGuides = await userCollection.countDocuments({ role: 'tour-guide' });
@@ -205,6 +215,134 @@ async function run() {
       res.send({ message: 'Profile updated successfully.' });
     })
 
+
+
+    // guide related api
+
+    app.get('/guides', async (req, res) => {
+      const query = { role: 'tour-guide' };
+      const guides = await userCollection.find(query).toArray();
+      res.send(guides);
+    })
+
+    app.get('/guides/random', async (req, res) => {
+      try {
+        const randomGuides = await userCollection.aggregate([
+          { $match: { role: 'tour-guide' } }, // Ensure only tour guides are included
+          { $sample: { size: 6 } }
+        ]).toArray();
+        res.send(randomGuides);
+      } catch (error) {
+        console.error('Error fetching random tour guides:', error);
+        res.status(500).send({ message: 'Failed to fetch random tour guides' });
+      }
+    });
+
+    app.get('/assigned-tours', async (req, res) => {
+      const { guideEmail } = req.query;
+      const assignedTours = await bookingsCollection.find({ guideEmail: guideEmail }).toArray();
+      res.send(assignedTours);
+    });
+
+    app.patch('/assigned-tours/accept/:id', async (req, res) => {
+      const { id } = req.params;
+      const result = await bookingsCollection.updateOne(
+        { _id: new ObjectId(id), status: 'In Review' },
+        { $set: { status: 'Accepted', acceptedAt: new Date() } }
+      )
+      if (result.modifiedCount === 0) {
+        return res.send({ message: 'Failed to accept the tour. Either it is not in-review or does not exist.' });
+      }
+      res.send({ message: 'Tour accepted successfully.' })
+    })
+
+    app.patch('/assigned-tours/reject/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id), status: 'In Review' },
+          { $set: { status: 'Rejected', rejectedAt: new Date() } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.send({ message: 'Failed to reject the tour. Either it is not in-review or does not exist.' });
+        }
+
+        res.send({ message: 'Tour rejected successfully.' });
+      } catch (error) {
+        console.error('Error rejecting tour:', error);
+        res.send({ message: 'Failed to reject tour.' });
+      }
+    });
+
+    app.delete('/assigned-tours/:id', async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await guideApplicationCollection.deleteOne(query);
+      if (result.deletedCount === 0) {
+        return res.send({ message: 'Tour cancelled.' })
+      }
+      res.send({ message: 'Application deleted and reject successfully' })
+    })
+
+
+    // guide application related APIs
+
+    app.get('/guideApplications', async (req, res) => {
+      const result = await guideApplicationCollection.find().toArray();
+      res.send(result);
+    })
+
+    app.post('/guideApplications', async (req, res) => {
+      const { name, email, title, reason, cvLink } = req.body;
+      const applicationData = {
+        name, email, title, reason, cvLink, status: 'pending', appliedAt: new Date()
+      }
+
+      const result = await guideApplicationCollection.insertOne(applicationData);
+      res.send({ message: 'Application Submitted Successfully', applicationId: result.insertedId })
+    })
+
+    app.put('/guideApplications/accept/:id', async (req, res) => {
+      const { id } = req.params;
+      console.log(id);
+      try {
+        const application = await guideApplicationCollection.findOne({ _id: new ObjectId(id) });
+        if (!application) {
+          return res.status(404).send({ message: 'application not found' })
+        }
+        const { email } = application;
+
+        const updateUser = await userCollection.updateOne(
+          { email },
+          { $set: { role: 'tour-guide' } }
+        )
+
+        if (updateUser.modifiedCount === 0) {
+          return res.status(400).send({ message: 'Failed to update user role.' });
+        }
+
+        await guideApplicationCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send({ message: 'application accepted and role updated to tour-guide' })
+      }
+      catch (error) {
+        res.send({ message: 'failed to accept invitation' })
+      }
+
+    })
+
+
+    app.delete('/guideApplications/reject/:id', async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await guideApplicationCollection.deleteOne(query);
+      if (result.deletedCount === 0) {
+        return res.send({ message: 'application not found' })
+      }
+      res.send({ message: 'Application deleted and reject successfully' })
+    })
+
+
     // package related api
     app.get('/packages', async (req, res) => {
       const result = await packageCollection.find().toArray();
@@ -257,78 +395,74 @@ async function run() {
     })
 
 
-    // guide related api
-
-    app.get('/guides', async (req, res) => {
-      const query = { role: 'tour-guide' };
-      const guides = await userCollection.find(query).toArray();
-      res.send(guides);
+    // booking related api
+    app.get('/bookings', async (req, res) => {
+      const { email } = req.query;
+      if (!email) {
+        return res.status(400).send({ message: 'Email is required' })
+      }
+      const bookings = await bookingsCollection.find({ touristEmail: email }).toArray();
+      res.send(bookings);
     })
 
-    app.get('/guides/random', async (req, res) => {
-      try {
-        const randomGuides = await userCollection.aggregate([
-          { $match: { role: 'tour-guide' } }, // Ensure only tour guides are included
-          { $sample: { size: 6 } }
-        ]).toArray();
-        res.send(randomGuides);
-      } catch (error) {
-        console.error('Error fetching random tour guides:', error);
-        res.status(500).send({ message: 'Failed to fetch random tour guides' });
+    app.get('/bookings/:id', async (req, res) => {
+      const { id } = req.params;
+      const result = await bookingsCollection.findOne({ _id: new ObjectId(id) });
+      if (!result) {
+        return res.send({ message: 'Booking not found' })
+
       }
-    });
+      res.send(result)
+    })
 
-    // guide application related APIs
+    app.post('/bookings', async (req, res) => {
+      const { packageName, touristName, touristEmail, touristImage, price, tourDate, guideName, guideEmail, status = 'pending' } = req.body;
 
-    app.get('/guideApplications', async (req, res) => {
-      const result = await guideApplicationCollection.find().toArray();
+      if (!packageName || !touristName || !touristEmail || !tourDate || !price) {
+        return res.status(400).send({ message: 'Missing required booking details' });
+      }
+
+      const booking = { packageName, touristName, touristEmail, touristImage, price, tourDate, guideName, guideEmail, status, createdAt: new Date() };
+      const result = await bookingsCollection.insertOne(booking);
+      res.send({ message: 'Booking created successfully.', bookingId: result.insertedId });
+    })
+
+    app.post('/create-payment-intent', async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      console.log(amount, 'amount inside the intent');
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'bdt',
+        payment_method_types: ['card'],
+      })
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
+    })
+
+    app.patch('/bookings/payment/:id', async (req, res) => {
+      const { id } = req.params;
+      const { transactionId } = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          transactionId, status: 'In Review', paidAt: new Date()
+        }
+      };
+      const result = await bookingsCollection.updateOne(filter, updateDoc);
+      res.send({ message: 'Payment successful, booking status updated.' })
+    })
+
+    app.delete('/bookings/:id', async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.deleteOne(query);
       res.send(result);
     })
 
-    app.post('/guideApplications', async (req, res) => {
-      const { name, email, title, reason, cvLink } = req.body;
-      const applicationData = {
-        name, email, title, reason, cvLink, status: 'pending', appliedAt: new Date()
-      }
 
-      const result = await guideApplicationCollection.insertOne(applicationData);
-      res.send({ message: 'Application Submitted Successfully', applicationId: result.insertedId })
-    })
-
-    app.put('/guideApplications/accept/:id', async (req, res) => {
-      const { id } = req.params;
-      console.log(id);
-      try {
-        const application = await guideApplicationCollection.findOne({ _id: new ObjectId(id) });
-        if (!application) {
-          return res.status(404).send({ message: 'application not found' })
-        }
-        const { userId } = application;
-        // console.log('application er userid', userId);
-        const updateUser = await userCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { role: 'tour-guide' } }
-        )
-
-        await guideApplicationCollection.deleteOne({ _id: new ObjectId(id) });
-        res.send({ message: 'application accepted and role updated to tour-guide' })
-      }
-      catch (error) {
-        res.send({ message: 'failed to accept invitation' })
-      }
-
-    })
-
-
-    app.delete('/guideApplications/reject/:id', async (req, res) => {
-      const { id } = req.params;
-      const query = { _id: new ObjectId(id) };
-      const result = await guideApplicationCollection.deleteOne(query);
-      if (result.deletedCount === 0) {
-        return res.send({ message: 'application not found' })
-      }
-      res.send({ message: 'Application deleted and reject successfully' })
-    })
 
     // stories related api
     app.get('/stories', async (req, res) => {
@@ -366,11 +500,7 @@ async function run() {
         }
 
         const story = {
-          title,
-          description,
-          userId: new ObjectId(userId),
-          images: imageFiles,
-          createdAt: new Date(),
+          title, description, userId: new ObjectId(userId), images: imageFiles, createdAt: new Date(),
         };
 
         const result = await storiesCollection.insertOne(story);
@@ -425,72 +555,6 @@ async function run() {
     });
 
 
-    // booking related api
-    app.get('/bookings', async (req, res) => {
-      const { email } = req.query;
-      if (!email) {
-        return res.status(400).send({ message: 'Email is required' })
-      }
-      const bookings = await bookingsCollection.find({ touristEmail: email }).toArray();
-      res.send(bookings);
-    })
-
-    app.get('/bookings/:id', async(req, res) => {
-      const {id} = req.params;
-      const result = await bookingsCollection.findOne({_id: new ObjectId(id)});
-      if(!result){
-        return res.send({message: 'Booking not found'})
-
-      }
-      res.send(result)
-    })
-
-    app.post('/bookings', async (req, res) => {
-      const { packageName, touristName, touristEmail, touristImage, price, tourDate, guideName, status = 'pending' } = req.body;
-
-      if (!packageName || !touristName || !touristEmail || !tourDate || !price) {
-        return res.status(400).send({ message: 'Missing required booking details' });
-      }
-
-      const booking = { packageName, touristName, touristEmail, touristImage, price, tourDate, guideName, status, createdAt: new Date() };
-      const result = await bookingsCollection.insertOne(booking);
-      res.send({ message: 'Booking created successfully.', bookingId: result.insertedId });
-    })
-
-    app.post('/create-payment-intent', async (req, res) => {
-      const { price } = req.body;
-      const amount = parseInt(price * 100);
-      console.log(amount, 'amount inside the intent');
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: amount,
-        currency: 'bdt',
-        payment_method_types: ['card'], 
-      })
-      res.send({
-        clientSecret: paymentIntent.client_secret
-      })
-    })
-
-    app.patch('/bookings/payment/:id', async(req, res) => {
-      const {id} = req.params;
-      const {transactionId} = req.body;
-      const filter = {_id: new ObjectId(id)};
-      const updateDoc = {
-        $set: {
-          transactionId, status:'In Review', paidAt: new Date()
-        }
-      };
-      const result = await bookingsCollection.updateOne(filter, updateDoc);
-      res.send({message: 'Payment successful, booking status updated.'})
-    })
-
-    app.delete('/bookings/:id', async(req, res) => {
-      const {id} = req.params;
-      const query = {_id: new ObjectId(id)};
-      const result = await bookingsCollection.deleteOne(query);
-      res.send(result);
-    })
 
 
 
