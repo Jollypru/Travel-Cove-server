@@ -238,6 +238,25 @@ async function run() {
       }
     });
 
+    app.get('/guides/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+          const guide = await userCollection.findOne({ _id: new ObjectId(id), role: 'tour-guide' }); 
+          if (!guide) {
+              return res.status(404).send({ message: 'Guide not found.' });
+          }
+
+          const stories = await storiesCollection.find({ userId: new ObjectId(id) }).toArray();
+          guide.stories = stories;
+  
+          res.send(guide);
+      } catch (error) {
+          console.error('Error fetching guide details:', error);
+          res.status(500).send({ message: 'Failed to fetch guide details.' });
+      }
+  });
+  
+
     app.get('/assigned-tours', async (req, res) => {
       const { guideEmail } = req.query;
       const assignedTours = await bookingsCollection.find({ guideEmail: guideEmail }).toArray();
