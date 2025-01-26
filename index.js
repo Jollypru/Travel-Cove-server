@@ -2,26 +2,24 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
-const multer = require('multer');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 5000;
-const path = require('path');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`)
-  }
-})
-const upload = multer({ storage });
 
-app.use(cors());
+const imageHostingApiKey = process.env.Image_Hosting_Api_Key;
+
+app.use(cors({
+  origin: ['http://localhost:5173',
+    'http://localhost:5174',
+    'https://travelcove-cc125.web.app',
+    'https://travelcove-cc125.firebaseapp.com'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+}));
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+app.options('*', cors());
 
 
 
@@ -241,21 +239,21 @@ async function run() {
     app.get('/guides/:id', async (req, res) => {
       const { id } = req.params;
       try {
-          const guide = await userCollection.findOne({ _id: new ObjectId(id), role: 'tour-guide' }); 
-          if (!guide) {
-              return res.status(404).send({ message: 'Guide not found.' });
-          }
+        const guide = await userCollection.findOne({ _id: new ObjectId(id), role: 'tour-guide' });
+        if (!guide) {
+          return res.status(404).send({ message: 'Guide not found.' });
+        }
 
-          const stories = await storiesCollection.find({ userId: new ObjectId(id) }).toArray();
-          guide.stories = stories;
-  
-          res.send(guide);
+        const stories = await storiesCollection.find({ userId: new ObjectId(id) }).toArray();
+        guide.stories = stories;
+
+        res.send(guide);
       } catch (error) {
-          console.error('Error fetching guide details:', error);
-          res.status(500).send({ message: 'Failed to fetch guide details.' });
+        console.error('Error fetching guide details:', error);
+        res.status(500).send({ message: 'Failed to fetch guide details.' });
       }
-  });
-  
+    });
+
 
     app.get('/assigned-tours', async (req, res) => {
       const { guideEmail } = req.query;
@@ -364,8 +362,8 @@ async function run() {
 
     // package related api
     app.get('/packages', async (req, res) => {
-      const result = await packageCollection.find().toArray();
-      res.send(result);
+      const packages = await packageCollection.find().toArray();
+      res.send(packages);
     })
 
     app.get('/packages/random', async (req, res) => {
@@ -396,16 +394,11 @@ async function run() {
       }
     })
 
-
-
-    app.post('/packages', upload.fields([
-      { name: 'coverImage', maxCount: 1 },
-      { name: 'galleryImages', maxCount: 10 }
-    ]), async (req, res) => {
-      const { title, description, price, tourPlan, tourType } = req.body;
-      const coverImage = req.files?.coverImage?.[0]?.path;
-      const galleryImages = req.files?.galleryImages?.map(file => file.path);
-
+    app.post('/packages', async (req, res) => {
+      const { title, description, price, tourPlan, tourType, coverImage, galleryImages } = req.body;
+      if (!title || !description || !price || !coverImage || !tourPlan) {
+        return res.status(400).send({ message: 'Missing required fields' });
+      }
       const newPackage = {
         title, description, price: parseFloat(price), tourPlan: JSON.parse(tourPlan), tourType, coverImage, galleryImages, createdAt: new Date()
       }
@@ -509,17 +502,16 @@ async function run() {
       }
     });
 
-    app.post('/stories', upload.array('images', 5), async (req, res) => {
+    app.post('/stories', async (req, res) => {
       try {
-        const { title, description, userId } = req.body;
-        const imageFiles = req.files.map((file) => file.path); // Save file paths
+        const { title, description, userId , images} = req.body;
 
-        if (!title || !description || !userId) {
+        if (!title || !description || !userId || !images || images.length === 0) {
           return res.status(400).send({ message: 'Title, description, and userId are required' });
         }
 
         const story = {
-          title, description, userId: new ObjectId(userId), images: imageFiles, createdAt: new Date(),
+          title, description, userId, images, createdAt: new Date(),
         };
 
         const result = await storiesCollection.insertOne(story);
