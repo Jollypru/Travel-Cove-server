@@ -1,6 +1,6 @@
 require('dotenv').config();
-const express = require('express');
 const cors = require('cors');
+const express = require('express');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -8,19 +8,29 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 
-const imageHostingApiKey = process.env.Image_Hosting_Api_Key;
 
 app.use(cors({
-  origin: ['http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
     'http://localhost:5174',
     'https://travelcove-cc125.web.app',
-    'https://travelcove-cc125.firebaseapp.com'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+    'https://travelcove-cc125.firebaseapp.com',
+  ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 }));
-app.use(express.json());
-app.options('*', cors());
 
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.url}`);
+  console.log(`Request Origin: ${req.headers.origin}`);
+  next();
+});
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*'); // Allow all origins for now
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nor5r.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -37,7 +47,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
+    await client.connect();
 
     const userCollection = client.db('TourismDB').collection('users');
     const storiesCollection = client.db('TourismDB').collection('stories');
@@ -395,16 +405,37 @@ async function run() {
     })
 
     app.post('/packages', async (req, res) => {
-      const { title, description, price, tourPlan, tourType, coverImage, galleryImages } = req.body;
-      if (!title || !description || !price || !coverImage || !tourPlan) {
-        return res.status(400).send({ message: 'Missing required fields' });
+      try {
+        console.log('Incoming data:', req.body);
+    
+        const { title, description, price, tourPlan, tourType, coverImage, galleryImages } = req.body;
+    
+        // Validate required fields
+        if (!title || !description || !price || !coverImage || !tourPlan) {
+          return res.status(400).send({ message: 'Missing required fields' });
+        }
+    
+        // Save package to database
+        const newPackage = {
+          title,
+          description,
+          price: parseFloat(price),
+          tourPlan: JSON.parse(tourPlan),
+          tourType,
+          coverImage,
+          galleryImages,
+          createdAt: new Date(),
+        };
+    
+        const result = await packageCollection.insertOne(newPackage);
+    
+        res.status(200).send({ message: 'Package added successfully', packageId: result.insertedId });
+      } catch (error) {
+        console.error('Error in /packages endpoint:', error); // Log the error
+        res.status(500).send({ message: 'Internal Server Error', error: error.message });
       }
-      const newPackage = {
-        title, description, price: parseFloat(price), tourPlan: JSON.parse(tourPlan), tourType, coverImage, galleryImages, createdAt: new Date()
-      }
-      const result = await packageCollection.insertOne(newPackage);
-      res.send({ message: 'Package added successfully', packageId: result.insertedId })
-    })
+    });
+    
 
 
     // booking related api
@@ -504,9 +535,9 @@ async function run() {
 
     app.post('/stories', async (req, res) => {
       try {
-        const { title, description, userId , images} = req.body;
+        const { title, description, userEmail , images} = req.body;
 
-        if (!title || !description || !userId || !images || images.length === 0) {
+        if (!title || !description || !userEmail || !images || images.length === 0) {
           return res.status(400).send({ message: 'Title, description, and userId are required' });
         }
 
