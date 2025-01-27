@@ -1,7 +1,7 @@
 require('dotenv').config();
-const cors = require('cors');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const cors = require('cors');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
@@ -9,28 +9,42 @@ const port = process.env.PORT || 5000;
 
 
 
+// app.use(cors({
+//   origin: [
+//     'http://localhost:5173',
+//     'http://localhost:5174',
+//     'https://travelcove-cc125.web.app',
+//     'https://travelcove-cc125.firebaseapp.com',
+//   ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+// }));
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'https://travelcove-cc125.web.app',
+];
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://travelcove-cc125.web.app',
-    'https://travelcove-cc125.firebaseapp.com',
-  ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  credentials: true,
 }));
 
-app.use(express.json());
 app.use((req, res, next) => {
-  console.log(`Incoming request: ${req.method} ${req.url}`);
-  console.log(`Request Origin: ${req.headers.origin}`);
-  next();
-});
-
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*'); // Allow all origins for now
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   next();
 });
+
+
+app.use(express.json());
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nor5r.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -57,7 +71,7 @@ async function run() {
 
     app.post('/jwt', async (req, res) => {
       const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' });
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '10h' });
       res.send({ token });
     })
 
@@ -406,8 +420,6 @@ async function run() {
 
     app.post('/packages', async (req, res) => {
       try {
-        console.log('Incoming data:', req.body);
-    
         const { title, description, price, tourPlan, tourType, coverImage, galleryImages } = req.body;
     
         // Validate required fields
@@ -420,7 +432,7 @@ async function run() {
           title,
           description,
           price: parseFloat(price),
-          tourPlan: JSON.parse(tourPlan),
+          tourPlan,
           tourType,
           coverImage,
           galleryImages,
@@ -618,3 +630,5 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`server running on port: ${port}`);
 })
+
+module.exports = app;
