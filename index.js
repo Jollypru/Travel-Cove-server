@@ -498,7 +498,7 @@ async function run() {
       try {
         let query = {};
         if (email) {
-          query = { email: email }
+          query = { userEmail: email }
         }
         const stories = await storiesCollection.find(query).toArray();
         res.send(stories);
@@ -522,8 +522,8 @@ async function run() {
       try {
         const { title, description, userEmail , images} = req.body;
 
-        if (!title || !description || !images) {
-          return res.status(400).send({ message: 'Title, description, and images are required' });
+        if (!title || !description || !images || !Array.isArray(images) || images.length === 0) {
+          return res.status(400).send({ message: 'Title, description, and at least one image are required' });
         }
 
         const story = {
