@@ -9,41 +9,14 @@ const port = process.env.PORT || 5000;
 
 
 
-// app.use(cors({
-//   origin: [
-//     'http://localhost:5173',
-//     'http://localhost:5174',
-//     'https://travelcove-cc125.web.app',
-//     'https://travelcove-cc125.firebaseapp.com',
-//   ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-// }));
-
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'https://travelcove-cc125.web.app',
-];
-
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  credentials: true,
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://travelcove-cc125.web.app',
+    'https://travelcove-cc125.firebaseapp.com',
+  ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 }));
-
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  next();
-});
-
-
 app.use(express.json());
 
 
@@ -61,7 +34,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db('TourismDB').collection('users');
     const storiesCollection = client.db('TourismDB').collection('stories');
@@ -549,12 +522,12 @@ async function run() {
       try {
         const { title, description, userEmail , images} = req.body;
 
-        if (!title || !description || !userEmail || !images || images.length === 0) {
-          return res.status(400).send({ message: 'Title, description, and userId are required' });
+        if (!title || !description || !images) {
+          return res.status(400).send({ message: 'Title, description, and images are required' });
         }
 
         const story = {
-          title, description, userId, images, createdAt: new Date(),
+          title, description, userEmail, images, createdAt: new Date(),
         };
 
         const result = await storiesCollection.insertOne(story);
