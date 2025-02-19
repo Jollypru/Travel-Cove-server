@@ -11,8 +11,8 @@ const port = process.env.PORT || 5000;
 
 app.use(cors({
   origin: [
-    'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5173',
     'https://travelcove-cc125.web.app',
     'https://travelcove-cc125.firebaseapp.com',
   ],methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -196,18 +196,21 @@ async function run() {
     // manage profile of user
     app.patch('/users/profile/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
-      const { name, photo } = req.body;
+      const { name, photo, phone, address } = req.body;
       const filter = { _id: new ObjectId(id) };
+      const updateFields = {};
+      if (name) updateFields.name = name;
+      if (photo) updateFields.photo = photo;
+      if (phone) updateFields.phone = phone;  // ✅ Ensure new phone data is stored
+      if (address) updateFields.address = address;
       const updatedDoc = {
-        $set: {
-          name, photo, updatedAt: new Date()
-        }
+        $set: { ...updateFields, updatedAt: new Date() }
       }
       const result = await userCollection.updateOne(filter, updatedDoc);
       if (result.matchedCount === 0) {
         return res.status(404).send({ message: 'User not found' });
       }
-      res.send({ message: 'Profile updated successfully.' });
+      res.send({ message: 'Profile updated successfully.',  updatedUser: updatedDoc });
     })
 
 
